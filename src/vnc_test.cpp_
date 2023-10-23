@@ -1,0 +1,97 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <FT6336.h>
+
+#include <TFT_eSPI.h>
+#include <VNC_TFT_eSPI.h>
+#include <VNC.h>
+
+#define LCD_BL_PIN (3)
+
+#define I2C_SDA_PIN (15)
+#define I2C_SCL_PIN (16)
+
+const char * vnc_ip = "10.10.20.57";
+const uint16_t vnc_port = 5900;
+const char * vnc_pass = "123456";
+
+const char* ssid = "Artron@Kit";
+const char* password = "Kit_Artron";
+
+VNC_TFT_eSPI tft = VNC_TFT_eSPI();
+arduinoVNC vnc = arduinoVNC(&tft);
+
+void setup(void) {
+    Serial.begin(115200);
+
+    tft.begin();
+    tft.setRotation( 1 ); /* Landscape orientation, flipped */
+
+    tft.setTextSize(2);
+    tft.setCursor(0, 0, 1);
+    tft.println("Ready");
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 400E3);
+    touch.init();
+
+    Serial.setDebugOutput(true);
+    Serial.println();
+    Serial.println();
+    Serial.println();
+
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+
+    WiFi.begin(ssid, password);
+    while(WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    Serial.println(F("[SETUP] VNC..."));
+
+    vnc.begin(vnc_ip, vnc_port);
+    vnc.setPassword(vnc_pass); // check for vnc server settings
+    pinMode(LCD_BL_PIN, OUTPUT);
+    digitalWrite(LCD_BL_PIN, HIGH);
+}
+
+void loop() {
+    if(WiFi.status() != WL_CONNECTED) {
+        vnc.reconnect();
+        delay(100);
+    } else {
+        if(vnc.connected()) {
+            // Touch
+            static bool last_pressed = false;
+            static uint16_t last_x = 0;
+            static uint16_t last_y = 0;
+            uint16_t x = 0, y = 0;
+            uint8_t touch_point = touch.read(&x, &y);
+            if (touch_point > 0) {
+                if ((last_x != x) || (last_y != y)) {
+                    vnc.mouseEvent(x, y, 0b0001);
+                    Serial.printf("Point: %d, x: %d, y: %d\n", touch_point, x, y);
+                    last_x = x;
+                    last_y = y;
+                }
+                last_pressed = true;
+            } else {
+                if (last_pressed) {
+                    vnc.mouseEvent(last_x, last_y, 0b0000);
+                    last_pressed = false;
+                }
+            }
+        }
+        vnc.loop();
+        if(!vnc.connected()) {
+            delay(5000);
+        }
+    }
+}
